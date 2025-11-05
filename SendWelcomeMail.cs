@@ -13,7 +13,7 @@ public class SendWelcomeMail(SmtpClient smtpClient)
 
 	[Function(nameof(SendWelcomeMail))]
 	public async Task<HttpResponseData> Run(
-		[HttpTrigger(AuthorizationLevel.Function, "post", "get", Route = "sendWelcomeMail/{email}")]
+		[HttpTrigger(AuthorizationLevel.Function, "post", Route = "sendWelcomeMail/{email}")]
 		HttpRequestData req,
 		FunctionContext context)
 	{
