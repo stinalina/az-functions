@@ -1,0 +1,11 @@
+{
+  "body": {
+    "content": "ewoiTWFpbCI6ICJzdGluYWJvZWhtaWdAZ214LmRlIiwKIk5hbWUiOiAiU3RpbmEiCn0=",
+    "file": false,
+    "fileSize": false
+  },
+  "headers": {},
+  "method": "POST",
+  "title": "Send Welcome Msg with Name",
+  "url": "http://localhost:7072/api/sendWelcomeMail"
+}
