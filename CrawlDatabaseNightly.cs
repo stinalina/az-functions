@@ -1,3 +1,6 @@
+using Mailtrap;
+using Mailtrap.Emails.Requests;
+using Mailtrap.Emails.Responses;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -5,7 +8,7 @@ using System.Net.Mail;
 
 namespace Notify.Function;
 
-public class CrawlDatabaseNightly(SmtpClient smtpClient)
+public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtrapClient)
 {
   private readonly string ConnectionString = Environment.GetEnvironmentVariable("DatabaseConnectionString")
     ?? throw new InvalidOperationException("Database connection string is not set in environment variables.");
@@ -35,8 +38,9 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient)
       @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail""
       FROM dev.""Notification"" n
       JOIN dev.""User"" u ON n.""UserId"" = u.""Id""
-      WHERE n.""DueDate""::date < @duedate", conn);
-      cmd.Parameters.AddWithValue("duedate", tomorrow);
+      WHERE n.""DueDate""::date = @duedate", conn);
+      //cmd.Parameters.AddWithValue("duedate", tomorrow);
+      cmd.Parameters.AddWithValue("duedate", new DateTime(2026, 2, 11));
 
       await using var reader = await cmd.ExecuteReaderAsync();
       while (await reader.ReadAsync())
@@ -62,11 +66,46 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient)
       logger.LogInformation($"Found {notifications.Count} notifications due tomorrow:");
       foreach (var notification in notifications)
       {
-        _smtpClient.Send("notify@remember-me.de", notification.Mail, notification.Subject, notification.Content);
+        Console.WriteLine($"- {notification.Id} for {notification.Mail} due on {notification.DueDate}");
+        await Task.Run(() => SendMail(notification));
+			  logger.LogInformation($"Notification mail sent to {notification.Mail}.");
+        // tmp deactivated. Free MailTrap can't send that many mails.
+        //_smtpClient.Send("notify@remember-me.de", notification.Mail, notification.Subject, notification.Content);
       }
     }
     return;
 	}
+
+  private async Task SendMail(NotificationEntry notification)
+  {
+		try
+		{
+			var sandboxId = 3946680;
+				SendEmailRequest request = SendEmailRequest
+						.Create()
+						.From("notify@remember-me.de", "Send Test Notification")
+						.To(notification.Mail)
+            .Template("9f7cfbd8-1061-4e10-8ea6-f37ed5905c7b")
+						.Subject(notification.Subject)
+            .Text("Hey! Anbei deine Erinnerung von Remember Me!")
+            .Html(
+                $@"<html>
+                    <body>
+                        {notification.Content}
+                    </body>
+                </html>"
+            )
+            .CustomVariable("content", notification.Content);
+				SendEmailResponse? response = await mailtrapClient
+					.Test(sandboxId) //In production  here we call .Email()
+					.Send(request);
+				Console.WriteLine("Response was: {0}", response);
+		}
+		catch (Exception ex)
+		{
+				Console.WriteLine("An error occurred while sending email: {0}", ex);
+		}
+  }
 
   public class NotificationEntry
   {

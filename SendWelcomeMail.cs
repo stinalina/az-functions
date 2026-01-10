@@ -4,10 +4,13 @@ using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Net.Mail;
 using System.Text.Json;
+using Mailtrap;
+using Mailtrap.Emails.Requests;
+using Mailtrap.Emails.Responses;
 
 namespace Notify.Function;
 
-public class SendWelcomeMail(SmtpClient smtpClient)
+public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClient)
 {
 	private readonly SmtpClient _smtpClient = smtpClient
 		?? throw new ArgumentNullException(nameof(smtpClient));
@@ -69,12 +72,38 @@ public class SendWelcomeMail(SmtpClient smtpClient)
 		}
 	}
 
-	private void SendMail(string recipientMail, string? recipientName)
+	private async Task SendMail(string recipientMail, string? recipientName)
   {
-		const string subject = "Willkommen bei Remember Me!";
-		string message = $"Wilkommen {recipientName ?? ""} bei Remember Me! Du hast soeben deine erste Erinnerung erstellt. Erstelle doch auch ein Konto bei uns, damit du deine Erinnerungen bearbeiten kannst!";
-		_smtpClient.Send("notify@remember-me.de", recipientMail, subject, message);
-		Console.WriteLine("Sent");
+		// const string subject = "Willkommen bei Remember Me!";
+		// string message = $"Wilkommen {recipientName ?? ""} bei Remember Me! Du hast soeben deine erste Erinnerung erstellt. Erstelle doch auch ein Konto bei uns, damit du deine Erinnerungen bearbeiten kannst!";
+		// _smtpClient.Send("notify@remember-me.de", recipientMail, subject, message);
+		// Console.WriteLine("Sent");
+
+		
+		try
+		{
+			var sandboxId = 3946680;
+				SendEmailRequest request = SendEmailRequest
+						.Create()
+						.From("notify@remember-me.de", "Welcome Mail")
+						.To(recipientMail)
+						.Template("8425c86a-52bc-4ec5-a8b4-f5c3ca9019d1")
+						.TemplateVariables(new Dictionary<string, object> // Optional template  parameters
+						{
+								{ "company_info_name", "Notify" },
+								{ "company_info_address", "Test_Company_info_address" },
+								{ "company_info_city", "Heidelberg" },
+								{ "company_info_country", "Deutschland" }
+						});
+				SendEmailResponse? response = await mailtrapClient
+					.Test(sandboxId) //In production  here we call .Email()
+					.Send(request);
+				Console.WriteLine("Response was: {0}", response);
+		}
+		catch (Exception ex)
+		{
+				Console.WriteLine("An error occurred while sending email: {0}", ex);
+		}
   }
 }
 
