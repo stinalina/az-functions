@@ -35,7 +35,7 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
       await conn.OpenAsync();
 
     var cmd = new NpgsqlCommand(
-      @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail""
+      @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail"", u.""Name""
       FROM dev.""Notification"" n
       JOIN dev.""User"" u ON n.""UserId"" = u.""Id""
       WHERE n.""DueDate""::date = @duedate", conn);
@@ -53,6 +53,7 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
           Content = reader.GetString(3),
           Subject = reader.GetString(4),
           Mail = reader.GetString(5),
+          Name = reader.GetString(6)
         });
       }
     }
@@ -78,6 +79,10 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
 
   private async Task SendMail(NotificationEntry notification)
   {
+    if (notification.Name == "Unknown") {
+      notification.Name = "Unbekannter Nutzer";
+    }
+
 		try
 		{
 			var sandboxId = 3946680;
@@ -85,17 +90,13 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
 						.Create()
 						.From("notify@remember-me.de", "Send Test Notification")
 						.To(notification.Mail)
-            .Template("9f7cfbd8-1061-4e10-8ea6-f37ed5905c7b")
-						.Subject(notification.Subject)
-            .Text("Hey! Anbei deine Erinnerung von Remember Me!")
-            .Html(
-                $@"<html>
-                    <body>
-                        {notification.Content}
-                    </body>
-                </html>"
-            )
-            .CustomVariable("content", notification.Content);
+            .Template("75d0d9f7-1d08-43cd-bd81-bf4587e39cee")
+            .TemplateVariables(new Dictionary<string, string>
+            {
+              { "subject", notification.Subject },
+              { "username", notification.Name },
+              { "content", notification.Content }
+          });
 				SendEmailResponse? response = await mailtrapClient
 					.Test(sandboxId) //In production  here we call .Email()
 					.Send(request);
@@ -113,8 +114,9 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
     public DateTime DueDate { get; set; }
     public DateTime CreatedAt { get; set; }
     public required string Content { get; set; }
-    public required string Subject {get; set; }
-    public required string Mail {get; set; }
+    public required string Subject { get; set; }
+    public required string Mail { get; set; }
+    public required string Name { get; set; }
   }
 
 }
