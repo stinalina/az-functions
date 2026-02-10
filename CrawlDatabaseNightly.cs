@@ -4,17 +4,13 @@ using Mailtrap.Emails.Responses;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Npgsql;
-using System.Net.Mail;
 
 namespace Notify.Function;
 
-public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtrapClient)
+public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
 {
   private readonly string ConnectionString = Environment.GetEnvironmentVariable("DatabaseConnectionString")
     ?? throw new InvalidOperationException("Database connection string is not set in environment variables.");
-
-	private readonly SmtpClient _smtpClient = smtpClient
-		?? throw new ArgumentNullException(nameof(smtpClient));
 
 // Cron expression: At 23:30 every day
 	[Function(nameof(CrawlDatabaseNightly))]
@@ -34,13 +30,15 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
       await using var conn = new NpgsqlConnection(ConnectionString);
       await conn.OpenAsync();
 
-    var cmd = new NpgsqlCommand(
-      @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail"", u.""Name""
-      FROM dev.""Notification"" n
-      JOIN dev.""User"" u ON n.""UserId"" = u.""Id""
-      WHERE n.""DueDate""::date = @duedate", conn);
-      //cmd.Parameters.AddWithValue("duedate", tomorrow);
-      cmd.Parameters.AddWithValue("duedate", new DateTime(2026, 2, 11));
+      var isProduction = Environment.GetEnvironmentVariable("Production") == "true";
+      var schema = isProduction ? "prod" : "dev";
+      var sql = @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail"", u.""Name""
+        FROM <schema>.""Notification"" n
+        JOIN <schema>.""User"" u ON n.""UserId"" = u.""Id""
+        WHERE n.""DueDate""::date = @duedate".Replace("<schema>", schema);
+        
+      var cmd = new NpgsqlCommand(sql, conn);
+      cmd.Parameters.AddWithValue("duedate", tomorrow);
 
       await using var reader = await cmd.ExecuteReaderAsync();
       while (await reader.ReadAsync())
@@ -70,8 +68,6 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
         Console.WriteLine($"- {notification.Id} for {notification.Mail} due on {notification.DueDate}");
         await Task.Run(() => SendMail(notification));
 			  logger.LogInformation($"Notification mail sent to {notification.Mail}.");
-        // tmp deactivated. Free MailTrap can't send that many mails.
-        //_smtpClient.Send("notify@remember-me.de", notification.Mail, notification.Subject, notification.Content);
       }
     }
     return;
@@ -97,6 +93,7 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
               { "username", notification.Name },
               { "content", notification.Content }
           });
+        
 				SendEmailResponse? response = await mailtrapClient
 					.Test(sandboxId) //In production  here we call .Email()
 					.Send(request);
