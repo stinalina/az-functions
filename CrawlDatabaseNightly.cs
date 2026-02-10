@@ -34,13 +34,15 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
       await using var conn = new NpgsqlConnection(ConnectionString);
       await conn.OpenAsync();
 
-    var cmd = new NpgsqlCommand(
-      @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail""
-      FROM dev.""Notification"" n
-      JOIN dev.""User"" u ON n.""UserId"" = u.""Id""
-      WHERE n.""DueDate""::date = @duedate", conn);
-      //cmd.Parameters.AddWithValue("duedate", tomorrow);
-      cmd.Parameters.AddWithValue("duedate", new DateTime(2026, 2, 11));
+      var isProduction = Environment.GetEnvironmentVariable("Production") == "true";
+      var schema = isProduction ? "prod" : "dev";
+      var sql = @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail""
+        FROM <schema>.""Notification"" n
+        JOIN <schema>.""User"" u ON n.""UserId"" = u.""Id""
+        WHERE n.""DueDate""::date = @duedate".Replace("<schema>", schema);
+        
+      var cmd = new NpgsqlCommand(sql, conn);
+      cmd.Parameters.AddWithValue("duedate", tomorrow);
 
       await using var reader = await cmd.ExecuteReaderAsync();
       while (await reader.ReadAsync())
@@ -69,8 +71,6 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
         Console.WriteLine($"- {notification.Id} for {notification.Mail} due on {notification.DueDate}");
         await Task.Run(() => SendMail(notification));
 			  logger.LogInformation($"Notification mail sent to {notification.Mail}.");
-        // tmp deactivated. Free MailTrap can't send that many mails.
-        //_smtpClient.Send("notify@remember-me.de", notification.Mail, notification.Subject, notification.Content);
       }
     }
     return;
