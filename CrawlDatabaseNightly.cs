@@ -4,17 +4,13 @@ using Mailtrap.Emails.Responses;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Npgsql;
-using System.Net.Mail;
 
 namespace Notify.Function;
 
-public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtrapClient)
+public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
 {
   private readonly string ConnectionString = Environment.GetEnvironmentVariable("DatabaseConnectionString")
     ?? throw new InvalidOperationException("Database connection string is not set in environment variables.");
-
-	private readonly SmtpClient _smtpClient = smtpClient
-		?? throw new ArgumentNullException(nameof(smtpClient));
 
 // Cron expression: At 23:30 every day
 	[Function(nameof(CrawlDatabaseNightly))]
@@ -36,7 +32,7 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
 
       var isProduction = Environment.GetEnvironmentVariable("Production") == "true";
       var schema = isProduction ? "prod" : "dev";
-      var sql = @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail""
+      var sql = @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail"", u.""Name""
         FROM <schema>.""Notification"" n
         JOIN <schema>.""User"" u ON n.""UserId"" = u.""Id""
         WHERE n.""DueDate""::date = @duedate".Replace("<schema>", schema);
@@ -97,6 +93,7 @@ public class CrawlDatabaseNightly(SmtpClient smtpClient, IMailtrapClient mailtra
               { "username", notification.Name },
               { "content", notification.Content }
           });
+        
 				SendEmailResponse? response = await mailtrapClient
 					.Test(sandboxId) //In production  here we call .Email()
 					.Send(request);
