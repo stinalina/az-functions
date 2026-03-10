@@ -2,7 +2,6 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using System.Net;
-using System.Net.Mail;
 using System.Text.Json;
 using Mailtrap;
 using Mailtrap.Emails.Requests;
@@ -11,19 +10,16 @@ using Notify.Function.Models;
 
 namespace Notify.Function;
 
-public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClient)
+public class RegisterInterest(IMailtrapClient mailtrapClient)
 {
-	private readonly SmtpClient _smtpClient = smtpClient
-		?? throw new ArgumentNullException(nameof(smtpClient));
-
-	[Function(nameof(SendWelcomeMail))]
+	[Function(nameof(RegisterInterest))]
 	public async Task<HttpResponseData> Run(
-		[HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "sendWelcomeMail")]
+		[HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "registerInterest")]
 		HttpRequestData req,
 		FunctionContext context)
 	{
-		var logger = context.GetLogger(nameof(SendWelcomeMail));
-		logger.LogInformation("SendWelcomeMail function triggered.");
+		var logger = context.GetLogger(nameof(RegisterInterest));
+		logger.LogInformation("RegisterInterest function triggered.");
 
 		var email = string.Empty;
 		var user = default(User?);
@@ -62,21 +58,21 @@ public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClie
 		try
 		{
 			// send mail (synchronous method called from a background task to avoid blocking)
-			var success = await Task.Run(() => SendMail(email, user?.Name));
+			var success =await Task.Run(() => SendMail(email, user?.Name));
 			if (success)
 			{
-				logger.LogInformation($"Welcome mail sent to {email}.");
+				logger.LogInformation($"RegisterInterest mail sent to {email}.");
 				return req.CreateResponse(HttpStatusCode.OK);
 			}
 			else
 			{
-				logger.LogError($"Failed to send welcome mail to {email}.");
+				logger.LogError($"Failed to send RegisterInterest mail to {email}.");
 				return req.CreateResponse(HttpStatusCode.InternalServerError);
 			}
 		}
 		catch (Exception ex)
 		{
-			logger.LogError(ex, "Failed to send welcome mail.");
+			logger.LogError(ex, "Failed to send RegisterInterest mail.");
 			return req.CreateResponse(HttpStatusCode.InternalServerError);;
 		}
 	}
@@ -88,16 +84,10 @@ public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClie
 			var sandboxId = 3946680;
 				SendEmailRequest request = SendEmailRequest
 						.Create()
-						.From("notify@rememberMe.de", "Welcome Mail")
+						.From("notify@rememberMe.de", "Register Interest Mail")
 						.To(recipientMail)
-						.Template("8425c86a-52bc-4ec5-a8b4-f5c3ca9019d1")
-						.TemplateVariables(new Dictionary<string, object> // Optional template  parameters
-						{
-								{ "company_info_name", "Notify" },
-								{ "company_info_address", "Test_Company_info_address" },
-								{ "company_info_city", "Heidelberg" },
-								{ "company_info_country", "Deutschland" }
-						});
+						.Subject("Interesse bekunden");
+				request.TextBody = $"Hallo {recipientName ?? recipientMail},\n\nvielen Dank für dein Interesse an rememberMe! Wir halten dich auf dem Laufenden über Neuigkeiten und Updates rund um unsere App.\n\nBeste Grüße,\nDein rememberMe Team";
 				SendEmailResponse? response = await mailtrapClient
 					.Test(sandboxId) //In production  here we call .Email()
 					.Send(request);
