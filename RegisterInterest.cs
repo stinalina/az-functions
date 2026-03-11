@@ -7,6 +7,8 @@ using Mailtrap;
 using Mailtrap.Emails.Requests;
 using Mailtrap.Emails.Responses;
 using Notify.Function.Models;
+using Azure.Data.Tables;
+
 
 namespace Notify.Function;
 
@@ -20,6 +22,18 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 	{
 		var logger = context.GetLogger(nameof(RegisterInterest));
 		logger.LogInformation("RegisterInterest function triggered.");
+
+		// Prüfe Query-Parameter onlyValue
+		var onlyValue = !string.IsNullOrEmpty(req.Query["onlyValue"]) && 
+			req.Query["onlyValue"].Equals("true", StringComparison.OrdinalIgnoreCase);
+		
+		if (onlyValue)
+		{
+			var callCount = await GetCallCounter(logger);
+			var response = req.CreateResponse(HttpStatusCode.OK);
+			await response.WriteAsJsonAsync(new { success = true, callCount });
+			return response;
+		}
 
 		var email = string.Empty;
 		var user = default(User?);
@@ -62,7 +76,13 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 			if (success)
 			{
 				logger.LogInformation($"RegisterInterest mail sent to {email}.");
-				return req.CreateResponse(HttpStatusCode.OK);
+				
+				// Zähler aktualisieren
+				var callCount = await IncrementCallCounter(logger);
+				
+				var response = req.CreateResponse(HttpStatusCode.OK);
+				await response.WriteAsJsonAsync(new { success = true, callCount });
+				return response;
 			}
 			else
 			{
@@ -100,4 +120,115 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 				return false;
 		}
   }
+
+	private async Task<int> IncrementCallCounter(ILogger logger)
+	{
+		try
+		{
+			var connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage") ?? "UseDevelopmentStorage=true";
+			var tableClient = new TableClient(connectionString, "functionmetrics");
+			
+			if (tableClient == null)
+			{
+				var tableUri = new Uri("http://127.0.0.1:10002/devstoreaccount1/functionmetrics");
+				tableClient = new TableClient(tableUri);
+			}
+
+			const string partitionKey = "RegisterInterest";
+			const string rowKey = "CallCount";
+
+			// Stelle sicher, dass Table existiert
+			try
+			{
+				await tableClient.CreateAsync();
+			}
+			catch
+			{
+				// Table existiert bereits, ignorieren
+			}
+
+			CallCounterMetric counter;
+			try
+			{
+				var result = await tableClient.GetEntityAsync<CallCounterMetric>(partitionKey, rowKey);
+				counter = result.Value;
+			}
+			catch (Azure.RequestFailedException ex) when (ex.Status == 404)
+			{
+				counter = new CallCounterMetric
+				{
+					Count = 0
+				};
+			}
+
+			counter.Count++;
+			await tableClient.UpsertEntityAsync(counter, TableUpdateMode.Replace);
+
+			logger.LogInformation($"RegisterInterest call count: {counter.Count}");
+			return counter.Count;
+		}
+		catch (Exception ex)
+		{
+			logger.LogError(ex, "Failed to update call counter");
+			return 0;
+		}
+	}
+
+	private async Task<int> GetCallCounter(ILogger logger)
+	{
+		try
+		{
+			var connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage") ?? "UseDevelopmentStorage=true";
+			var tableClient = new TableClient(connectionString, "functionmetrics");
+			
+			if (tableClient == null)
+			{
+				var tableUri = new Uri("http://127.0.0.1:10002/devstoreaccount1/functionmetrics");
+				tableClient = new TableClient(tableUri);
+			}
+
+			const string partitionKey = "RegisterInterest";
+			const string rowKey = "CallCount";
+
+			// Stelle sicher, dass Table existiert
+			try
+			{
+				await tableClient.CreateAsync();
+			}
+			catch
+			{
+				// Table existiert bereits, ignorieren
+			}
+
+			CallCounterMetric counter;
+			try
+			{
+				var result = await tableClient.GetEntityAsync<CallCounterMetric>(partitionKey, rowKey);
+				counter = result.Value;
+			}
+			catch (Azure.RequestFailedException ex) when (ex.Status == 404)
+			{
+				counter = new CallCounterMetric
+				{
+					Count = 0
+				};
+			}
+
+			return counter.Count;
+		}
+		catch (Exception ex)
+		{
+			logger.LogError(ex, "Failed to get call counter");
+			return 0;
+		}
+	}
+}
+
+public class CallCounterMetric : ITableEntity
+{
+	public int Count { get; set; }
+	public string PartitionKey { get; set; } = string.Empty;
+	public string RowKey { get; set; } = string.Empty;
+	public DateTimeOffset? Timestamp { get; set; }
+	public Azure.ETag ETag { get; set; }
 }
