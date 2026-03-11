@@ -2,19 +2,16 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using System.Net;
-using System.Net.Mail;
 using System.Text.Json;
 using Mailtrap;
 using Mailtrap.Emails.Requests;
 using Mailtrap.Emails.Responses;
+using Notify.Function.Models;
 
 namespace Notify.Function;
 
-public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClient)
+public class SendWelcomeMail( IMailtrapClient mailtrapClient)
 {
-	private readonly SmtpClient _smtpClient = smtpClient
-		?? throw new ArgumentNullException(nameof(smtpClient));
-
 	[Function(nameof(SendWelcomeMail))]
 	public async Task<HttpResponseData> Run(
 		[HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "sendWelcomeMail")]
@@ -60,10 +57,17 @@ public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClie
 
 		try
 		{
-			// send mail (synchronous method called from a background task to avoid blocking)
-			await Task.Run(() => SendMail(email, user?.Name));
-			logger.LogInformation($"Welcome mail sent to {email}.");
-			return req.CreateResponse(HttpStatusCode.OK);
+			var success = await SendMailAsync(email, user?.Name);
+			if (success)
+			{
+				logger.LogInformation($"Welcome mail sent to {email}.");
+				return req.CreateResponse(HttpStatusCode.OK);
+			}
+			else
+			{
+				logger.LogError($"Failed to send welcome mail to {email}.");
+				return req.CreateResponse(HttpStatusCode.InternalServerError);
+			}
 		}
 		catch (Exception ex)
 		{
@@ -72,20 +76,14 @@ public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClie
 		}
 	}
 
-	private async Task SendMail(string recipientMail, string? recipientName)
+	private async Task<bool> SendMailAsync(string recipientMail, string? recipientName)
   {
-		// const string subject = "Willkommen bei Remember Me!";
-		// string message = $"Wilkommen {recipientName ?? ""} bei Remember Me! Du hast soeben deine erste Erinnerung erstellt. Erstelle doch auch ein Konto bei uns, damit du deine Erinnerungen bearbeiten kannst!";
-		// _smtpClient.Send("notify@remember-me.de", recipientMail, subject, message);
-		// Console.WriteLine("Sent");
-
-		
 		try
 		{
 			var sandboxId = 3946680;
 				SendEmailRequest request = SendEmailRequest
 						.Create()
-						.From("notify@remember-me.de", "Welcome Mail")
+						.From("notify@rememberMe.de", "Welcome Mail")
 						.To(recipientMail)
 						.Template("8425c86a-52bc-4ec5-a8b4-f5c3ca9019d1")
 						.TemplateVariables(new Dictionary<string, object> // Optional template  parameters
@@ -99,16 +97,12 @@ public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClie
 					.Test(sandboxId) //In production  here we call .Email()
 					.Send(request);
 				Console.WriteLine("Response was: {0}", response);
+				return true;
 		}
 		catch (Exception ex)
 		{
 				Console.WriteLine("An error occurred while sending email: {0}", ex);
+				return false;
 		}
   }
-}
-
-public class User
-{
-	public required string Mail { get; set; }
-	public required string Name { get; set; }
 }
