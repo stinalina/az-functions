@@ -2,7 +2,6 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using System.Net;
-using System.Net.Mail;
 using System.Text.Json;
 using Mailtrap;
 using Mailtrap.Emails.Requests;
@@ -11,11 +10,8 @@ using Notify.Function.Models;
 
 namespace Notify.Function;
 
-public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClient)
+public class SendWelcomeMail( IMailtrapClient mailtrapClient)
 {
-	private readonly SmtpClient _smtpClient = smtpClient
-		?? throw new ArgumentNullException(nameof(smtpClient));
-
 	[Function(nameof(SendWelcomeMail))]
 	public async Task<HttpResponseData> Run(
 		[HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "sendWelcomeMail")]

@@ -109,7 +109,7 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 				SendEmailResponse? response = await mailtrapClient
 					.Test(sandboxId) //In production  here we call .Email()
 					.Send(request);
-				logger.LogError("Response was: {0}", response);
+				logger.LogInformation("Response was: {0}", response);
 				return true;
 		}
 		catch (Exception ex)
@@ -124,25 +124,9 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 		try
 		{
 			var connectionString = this.GetConnectionString(logger);
-			if (string.IsNullOrWhiteSpace(connectionString))
-			{
-				var environment =
-					Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ??
-					Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
-				var isDevelopment = string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase);
-				if (isDevelopment)
-				{
-					connectionString = "UseDevelopmentStorage=true";
-				}
-				else
-				{
-					logger.LogError("AzureWebJobsStorage environment variable is not set.");
-					throw new InvalidOperationException("AzureWebJobsStorage environment variable is not set.");
-				}
-			}
 
 			var tableClient = new TableClient(connectionString, "functionmetrics");
-			await tableClient.CreateAsync();
+			await tableClient.CreateIfNotExistsAsync();
 
 			const string partitionKey = "RegisterInterest";
 			const string rowKey = "CallCount";
@@ -172,7 +156,7 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 		catch (Exception ex)
 		{
 			logger.LogError(ex, "Failed to update call counter");
-			return 0;
+			throw ex;
 		}
 	}
 
@@ -182,7 +166,7 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 		{
 			var connectionString = this.GetConnectionString(logger);
 			var tableClient = new TableClient(connectionString, "functionmetrics");
-			await tableClient.CreateAsync();
+			await tableClient.CreateIfNotExistsAsync();
 
 			const string partitionKey = "RegisterInterest";
 			const string rowKey = "CallCount";
@@ -208,7 +192,7 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 		catch (Exception ex)
 		{
 			logger.LogError(ex, "Failed to get call counter");
-			return 0;
+			throw ex;
 		}
 	}
 
