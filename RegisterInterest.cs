@@ -9,7 +9,6 @@ using Mailtrap.Emails.Responses;
 using Notify.Function.Models;
 using Azure.Data.Tables;
 
-
 namespace Notify.Function;
 
 public class RegisterInterest(IMailtrapClient mailtrapClient)
@@ -71,7 +70,7 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 
 		try
 		{
-			var success = await SendMailAsync(email, user?.Name);
+			var success = await SendMailAsync(email, logger);
 			if (success)
 			{
 				logger.LogInformation($"RegisterInterest mail sent to {email}.");
@@ -96,7 +95,7 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 		}
 	}
 
-	private async Task<bool> SendMailAsync(string recipientMail, string? recipientName)
+	private async Task<bool> SendMailAsync(string recipientMail, ILogger logger)
   {
 		try
 		{
@@ -106,16 +105,16 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 						.From("notify@rememberMe.de", "Register Interest Mail")
 						.To(recipientMail)
 						.Subject("Interesse bekunden");
-				request.TextBody = $"Hallo {recipientName ?? recipientMail},\n\nvielen Dank für dein Interesse an rememberMe! Wir halten dich auf dem Laufenden über Neuigkeiten und Updates rund um unsere App.\n\nBeste Grüße,\nDein rememberMe Team";
+				request.TextBody = $"Hallo {recipientMail},\n\nvielen Dank für dein Interesse an rememberMe! Wir halten dich auf dem Laufenden über Neuigkeiten und Updates rund um unsere App.\n\nBeste Grüße,\nDein rememberMe Team";
 				SendEmailResponse? response = await mailtrapClient
 					.Test(sandboxId) //In production  here we call .Email()
 					.Send(request);
-				Console.WriteLine("Response was: {0}", response);
+				logger.LogError("Response was: {0}", response);
 				return true;
 		}
 		catch (Exception ex)
 		{
-				Console.WriteLine("An error occurred while sending email: {0}", ex);
+				logger.LogError(ex, "An error occurred while sending email.");
 				return false;
 		}
   }
@@ -124,7 +123,24 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 	{
 		try
 		{
-			var connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage") ?? "UseDevelopmentStorage=true";
+			var connectionString = this.GetConnectionString(logger);
+			if (string.IsNullOrWhiteSpace(connectionString))
+			{
+				var environment =
+					Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ??
+					Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
+				var isDevelopment = string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase);
+				if (isDevelopment)
+				{
+					connectionString = "UseDevelopmentStorage=true";
+				}
+				else
+				{
+					logger.LogError("AzureWebJobsStorage environment variable is not set.");
+					throw new InvalidOperationException("AzureWebJobsStorage environment variable is not set.");
+				}
+			}
+
 			var tableClient = new TableClient(connectionString, "functionmetrics");
 			await tableClient.CreateAsync();
 
@@ -141,7 +157,9 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 			{
 				counter = new CallCounterMetric
 				{
-					Count = 0
+					Count = 0,
+					PartitionKey = partitionKey,
+					RowKey = rowKey,
 				};
 			}
 
@@ -162,7 +180,7 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 	{
 		try
 		{
-			var connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage") ?? "UseDevelopmentStorage=true";
+			var connectionString = this.GetConnectionString(logger);
 			var tableClient = new TableClient(connectionString, "functionmetrics");
 			await tableClient.CreateAsync();
 
@@ -179,7 +197,9 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 			{
 				counter = new CallCounterMetric
 				{
-					Count = 0
+					Count = 0,
+					PartitionKey = partitionKey,
+					RowKey = rowKey,
 				};
 			}
 
@@ -191,7 +211,30 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 			return 0;
 		}
 	}
+
+	private string GetConnectionString(ILogger logger)
+	{
+		var connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
+		if (string.IsNullOrWhiteSpace(connectionString))
+		{
+			var environment =
+				Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ??
+				Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
+			var isDevelopment = string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase);
+			if (isDevelopment)
+			{
+				connectionString = "UseDevelopmentStorage=true";
+			}
+			else
+			{
+				logger.LogError("AzureWebJobsStorage environment variable is not set.");
+				throw new InvalidOperationException("AzureWebJobsStorage environment variable is not set.");
+			}
+		}
+		return connectionString;
+	}
 }
+
 
 public class CallCounterMetric : ITableEntity
 {
