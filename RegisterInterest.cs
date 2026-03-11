@@ -71,8 +71,7 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 
 		try
 		{
-			// send mail (synchronous method called from a background task to avoid blocking)
-			var success =await Task.Run(() => SendMail(email, user?.Name));
+			var success = await SendMailAsync(email, user?.Name);
 			if (success)
 			{
 				logger.LogInformation($"RegisterInterest mail sent to {email}.");
@@ -93,11 +92,11 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 		catch (Exception ex)
 		{
 			logger.LogError(ex, "Failed to send RegisterInterest mail.");
-			return req.CreateResponse(HttpStatusCode.InternalServerError);;
+			return req.CreateResponse(HttpStatusCode.InternalServerError);
 		}
 	}
 
-	private async Task<bool> SendMail(string recipientMail, string? recipientName)
+	private async Task<bool> SendMailAsync(string recipientMail, string? recipientName)
   {
 		try
 		{
@@ -127,25 +126,10 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 		{
 			var connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage") ?? "UseDevelopmentStorage=true";
 			var tableClient = new TableClient(connectionString, "functionmetrics");
-			
-			if (tableClient == null)
-			{
-				var tableUri = new Uri("http://127.0.0.1:10002/devstoreaccount1/functionmetrics");
-				tableClient = new TableClient(tableUri);
-			}
+			await tableClient.CreateAsync();
 
 			const string partitionKey = "RegisterInterest";
 			const string rowKey = "CallCount";
-
-			// Stelle sicher, dass Table existiert
-			try
-			{
-				await tableClient.CreateAsync();
-			}
-			catch
-			{
-				// Table existiert bereits, ignorieren
-			}
 
 			CallCounterMetric counter;
 			try
@@ -180,25 +164,10 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 		{
 			var connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage") ?? "UseDevelopmentStorage=true";
 			var tableClient = new TableClient(connectionString, "functionmetrics");
-			
-			if (tableClient == null)
-			{
-				var tableUri = new Uri("http://127.0.0.1:10002/devstoreaccount1/functionmetrics");
-				tableClient = new TableClient(tableUri);
-			}
+			await tableClient.CreateAsync();
 
 			const string partitionKey = "RegisterInterest";
 			const string rowKey = "CallCount";
-
-			// Stelle sicher, dass Table existiert
-			try
-			{
-				await tableClient.CreateAsync();
-			}
-			catch
-			{
-				// Table existiert bereits, ignorieren
-			}
 
 			CallCounterMetric counter;
 			try

@@ -61,8 +61,7 @@ public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClie
 
 		try
 		{
-			// send mail (synchronous method called from a background task to avoid blocking)
-			var success = await Task.Run(() => SendMail(email, user?.Name));
+			var success = await SendMailAsync(email, user?.Name);
 			if (success)
 			{
 				logger.LogInformation($"Welcome mail sent to {email}.");
@@ -81,7 +80,7 @@ public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClie
 		}
 	}
 
-	private async Task<bool> SendMail(string recipientMail, string? recipientName)
+	private async Task<bool> SendMailAsync(string recipientMail, string? recipientName)
   {
 		try
 		{
