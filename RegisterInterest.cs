@@ -21,19 +21,7 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 	{
 		var logger = context.GetLogger(nameof(RegisterInterest));
 		logger.LogInformation("RegisterInterest function triggered.");
-
-		// Prüfe Query-Parameter onlyValue
-		var onlyValue = !string.IsNullOrEmpty(req.Query["onlyValue"]) && 
-			req.Query["onlyValue"].Equals("true", StringComparison.OrdinalIgnoreCase);
 		
-		if (onlyValue)
-		{
-			var callCount = await GetCallCounter(logger);
-			var response = req.CreateResponse(HttpStatusCode.OK);
-			await response.WriteAsJsonAsync(new { success = true, callCount });
-			return response;
-		}
-
 		var email = string.Empty;
 		var user = default(User?);
 
@@ -160,42 +148,6 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 		}
 	}
 
-	private async Task<int> GetCallCounter(ILogger logger)
-	{
-		try
-		{
-			var connectionString = this.GetConnectionString(logger);
-			var tableClient = new TableClient(connectionString, "functionmetrics");
-			await tableClient.CreateIfNotExistsAsync();
-
-			const string partitionKey = "RegisterInterest";
-			const string rowKey = "CallCount";
-
-			CallCounterMetric counter;
-			try
-			{
-				var result = await tableClient.GetEntityAsync<CallCounterMetric>(partitionKey, rowKey);
-				counter = result.Value;
-			}
-			catch (Azure.RequestFailedException ex) when (ex.Status == 404)
-			{
-				counter = new CallCounterMetric
-				{
-					Count = 0,
-					PartitionKey = partitionKey,
-					RowKey = rowKey,
-				};
-			}
-
-			return counter.Count;
-		}
-		catch (Exception ex)
-		{
-			logger.LogError(ex, "Failed to get call counter");
-			throw ex;
-		}
-	}
-
 	private string GetConnectionString(ILogger logger)
 	{
 		var connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage");
@@ -218,7 +170,6 @@ public class RegisterInterest(IMailtrapClient mailtrapClient)
 		return connectionString;
 	}
 }
-
 
 public class CallCounterMetric : ITableEntity
 {
