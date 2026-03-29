@@ -15,7 +15,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
 // Cron expression: At 23:30 every day
 	[Function(nameof(CrawlDatabaseNightly))]
 	public async Task Run(
-		[TimerTrigger("0 30 23 * * *", RunOnStartup = true)] TimerInfo timerInfo,
+		[TimerTrigger("0 30 23 * * *")] TimerInfo timerInfo,
 		FunctionContext context)
 	{
 		var logger = context.GetLogger(nameof(CrawlDatabaseNightly));
@@ -27,6 +27,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
 
     try
     {
+      logger.LogInformation("Connecting to database...");
       await using var conn = new NpgsqlConnection(ConnectionString);
       await conn.OpenAsync();
 
@@ -39,6 +40,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
         
       var cmd = new NpgsqlCommand(sql, conn);
       cmd.Parameters.AddWithValue("duedate", tomorrow);
+      logger.LogInformation("Add {Tomorrow} as due date", tomorrow);
 
       await using var reader = await cmd.ExecuteReaderAsync();
       while (await reader.ReadAsync())
@@ -57,23 +59,24 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
     }
     catch (Exception ex)
     {
-      logger.LogError($"Error querying database: {ex.Message}");
+      logger.LogError("Error querying database: {Message}", ex.Message);
+      logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
     }
 
     if (notifications.Count > 0)
     {
-      logger.LogInformation($"Found {notifications.Count} notifications due tomorrow:");
+      logger.LogInformation("Found {Count} notifications due tomorrow:", notifications.Count);
       foreach (var notification in notifications)
       {
-        Console.WriteLine($"- {notification.Id} for {notification.Mail} due on {notification.DueDate}");
-        await Task.Run(() => SendMail(notification));
-			  logger.LogInformation($"Notification mail sent to {notification.Mail}.");
+        await Task.Run(() => SendMail(notification, logger));
+			  logger.LogInformation("Notification mail sent to {Mail}.", notification.Mail);
       }
+      return;
     }
-    return;
+    logger.LogInformation("Nothing found to due tomorrow");
 	}
 
-  private async Task SendMail(NotificationEntry notification)
+  private async Task SendMail(NotificationEntry notification, ILogger logger)
   {
     if (notification.Name == "Unknown") {
       notification.Name = "Unbekannter Nutzer";
@@ -81,6 +84,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
 
 		try
 		{
+      logger.LogInformation("Creating request and try to send mail...");
 			var sandboxId = 3946680;
 				SendEmailRequest request = SendEmailRequest
 						.Create()
@@ -97,11 +101,12 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
 				SendEmailResponse? response = await mailtrapClient
 					.Test(sandboxId) //In production  here we call .Email()
 					.Send(request);
-				Console.WriteLine("Response was: {0}", response);
+				logger.LogInformation("Response was: {Response}", response);
 		}
 		catch (Exception ex)
 		{
-				Console.WriteLine("An error occurred while sending email: {0}", ex);
+				logger.LogError("An error occurred while sending email: {Message}", ex.Message);
+        logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
 		}
   }
 
