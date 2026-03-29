@@ -84,29 +84,49 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
 
 		try
 		{
-      logger.LogInformation("Creating request and try to send mail...");
-			var sandboxId = 3946680;
-				SendEmailRequest request = SendEmailRequest
-						.Create()
-						.From("notify@remember-me.de", "Send Test Notification")
-						.To(notification.Mail)
-            .Template("75d0d9f7-1d08-43cd-bd81-bf4587e39cee")
-            .TemplateVariables(new Dictionary<string, string>
-            {
-              { "subject", notification.Subject },
-              { "username", notification.Name },
-              { "content", notification.Content }
-          });
-        
+      var isProduction = Environment.GetEnvironmentVariable("Production") == "true";
+			logger.LogInformation("Creating request and try to send mail...");
+
+      var mailFrom = Environment.GetEnvironmentVariable("MailFrom") 
+        ?? throw new InvalidOperationException("MailFrom environment variable is not set.");
+
+			SendEmailRequest request = SendEmailRequest
+				.Create()
+        .From(mailFrom)
+        .To(notification.Mail)
+        .Template("75d0d9f7-1d08-43cd-bd81-bf4587e39cee")
+        .TemplateVariables(new Dictionary<string, string>
+        {
+          { "subject", notification.Subject },
+          { "username", notification.Name },
+          { "content", notification.Content }
+        })
+        .Category("Notification");
+
+			if (isProduction)
+			{
+				logger.LogInformation("Running in production mode, sending email via Mailtrap API.");
 				SendEmailResponse? response = await mailtrapClient
-					.Test(sandboxId) //In production  here we call .Email()
+					.Email()
 					.Send(request);
-				logger.LogInformation("Response was: {Response}", response);
+			} 
+			else
+			{
+				logger.LogInformation("Running in development mode, using Mailtrap sandbox.");
+
+				var sandboxId = int.TryParse(Environment.GetEnvironmentVariable("MailSandboxId"), out var id) 
+          ? id : throw new ArgumentException("MailSandboxId environment variable is not set.");
+
+				SendEmailResponse? response = await mailtrapClient
+					.Test(sandboxId)
+					.Send(request);
+			}
+			logger.LogInformation("Email sended successfully");
 		}
 		catch (Exception ex)
 		{
-				logger.LogError("An error occurred while sending email: {Message}", ex.Message);
-        logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
+      logger.LogError("An error occurred while sending email: {Message}", ex.Message);
+      logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
 		}
   }
 
@@ -120,5 +140,4 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
     public required string Mail { get; set; }
     public required string Name { get; set; }
   }
-
 }
