@@ -27,20 +27,22 @@ public class SendWelcomeMail( IMailtrapClient mailtrapClient)
 		if (context.BindingContext.BindingData.TryGetValue("email", out var bd))
 		{
 			email = bd?.ToString();
+			logger.LogInformation("Email extracted from query parameters: {Email}", email);
 		}
 
 		if (string.IsNullOrWhiteSpace(email))
 		{
 			try
 			{
-        using var reader = new StreamReader(req.Body);
-        var body = await reader.ReadToEndAsync();
-        user = JsonSerializer.Deserialize<User>(body);
-        if (user != null && !string.IsNullOrWhiteSpace(user.Mail))
-        {
-          email = user.Mail;
-        }
-      }
+				using var reader = new StreamReader(req.Body);
+				var body = await reader.ReadToEndAsync();
+				user = JsonSerializer.Deserialize<User>(body);
+				if (user != null && !string.IsNullOrWhiteSpace(user.Mail))
+				{
+					email = user.Mail;
+					logger.LogInformation("Email extracted from request body: {Email}", email);
+				}
+			}
 			catch (Exception ex)
 			{
 				logger.LogWarning(ex, "Failed to parse User from request body.");
@@ -60,49 +62,49 @@ public class SendWelcomeMail( IMailtrapClient mailtrapClient)
 			var success = await SendMailAsync(email, user?.Name);
 			if (success)
 			{
-				logger.LogInformation($"Welcome mail sent to {email}.");
+				logger.LogInformation("Welcome mail sent to {Email}.", email);
 				return req.CreateResponse(HttpStatusCode.OK);
 			}
 			else
 			{
-				logger.LogError($"Failed to send welcome mail to {email}.");
+				logger.LogError("Failed to send welcome mail to {Email}.", email);
 				return req.CreateResponse(HttpStatusCode.InternalServerError);
 			}
 		}
 		catch (Exception ex)
 		{
-			logger.LogError(ex, "Failed to send welcome mail.");
+			logger.LogError(ex, "Failed to send welcome mail to {Email}.", email);
 			return req.CreateResponse(HttpStatusCode.InternalServerError);;
 		}
 	}
 
 	private async Task<bool> SendMailAsync(string recipientMail, string? recipientName)
-  {
+  	{
 		try
 		{
 			var sandboxId = 3946680;
-				SendEmailRequest request = SendEmailRequest
-						.Create()
-						.From("notify@rememberMe.de", "Welcome Mail")
-						.To(recipientMail)
-						.Template("8425c86a-52bc-4ec5-a8b4-f5c3ca9019d1")
-						.TemplateVariables(new Dictionary<string, object> // Optional template  parameters
-						{
-								{ "company_info_name", "Notify" },
-								{ "company_info_address", "Test_Company_info_address" },
-								{ "company_info_city", "Heidelberg" },
-								{ "company_info_country", "Deutschland" }
-						});
-				SendEmailResponse? response = await mailtrapClient
-					.Test(sandboxId) //In production  here we call .Email()
-					.Send(request);
-				Console.WriteLine("Response was: {0}", response);
-				return true;
+			SendEmailRequest request = SendEmailRequest
+					.Create()
+					.From("notify@rememberMe.de", "Welcome Mail")
+					.To(recipientMail)
+					.Template("8425c86a-52bc-4ec5-a8b4-f5c3ca9019d1")
+					.TemplateVariables(new Dictionary<string, object> // Optional template  parameters
+					{
+						{ "company_info_name", "Notify" },
+						{ "company_info_address", "Test_Company_info_address" },
+						{ "company_info_city", "Heidelberg" },
+						{ "company_info_country", "Deutschland" }
+					});
+			SendEmailResponse? response = await mailtrapClient
+				.Test(sandboxId) //In production  here we call .Email()
+				.Send(request);
+			Console.WriteLine("Response was: {0}", response);
+			return true;
 		}
 		catch (Exception ex)
 		{
-				Console.WriteLine("An error occurred while sending email: {0}", ex);
-				return false;
+			Console.WriteLine("An error occurred while sending email: {0}", ex);
+			return false;
 		}
   }
 }
