@@ -10,7 +10,7 @@ using Notify.Function.Models;
 
 namespace Notify.Function;
 
-public class SendWelcomeMail( IMailtrapClient mailtrapClient)
+public class SendWelcomeMail(IMailtrapClient mailtrapClient)
 {
 	[Function(nameof(SendWelcomeMail))]
 	public async Task<HttpResponseData> Run(
@@ -59,7 +59,7 @@ public class SendWelcomeMail( IMailtrapClient mailtrapClient)
 
 		try
 		{
-			var success = await SendMailAsync(email, user?.Name);
+			var success = await SendMailAsync(email);
 			if (success)
 			{
 				logger.LogInformation("Welcome mail sent to {Email}.", email);
@@ -78,7 +78,7 @@ public class SendWelcomeMail( IMailtrapClient mailtrapClient)
 		}
 	}
 
-	private async Task<bool> SendMailAsync(string recipientMail, string? recipientName)
+	private async Task<bool> SendMailAsync(string recipientMail)
   	{
 		try
 		{
