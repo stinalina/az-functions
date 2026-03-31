@@ -68,7 +68,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
       logger.LogInformation("Found {Count} notifications due tomorrow:", notifications.Count);
       foreach (var notification in notifications)
       {
-        await Task.Run(() => SendMail(notification, logger));
+        await SendMailAsync(notification, logger);
 			  logger.LogInformation("Notification mail sent to {Mail}.", notification.Mail);
       }
       return;
@@ -76,7 +76,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
     logger.LogInformation("Nothing found to due tomorrow");
 	}
 
-  private async Task SendMail(NotificationEntry notification, ILogger logger)
+  private async Task SendMailAsync(NotificationEntry notification, ILogger logger)
   {
     if (notification.Name == "Unknown") {
       notification.Name = "Unbekannter Nutzer";
@@ -100,8 +100,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
           { "subject", notification.Subject },
           { "username", notification.Name },
           { "content", notification.Content }
-        })
-        .Category("Notification");
+        });
 
 			if (isProduction)
 			{

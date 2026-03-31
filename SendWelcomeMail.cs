@@ -93,7 +93,6 @@ public class SendWelcomeMail(IMailtrapClient mailtrapClient)
 				.Create()
 				.From(mailFrom)
 				.To(recipientMail)
-				.Category("Welcome")
 				.Template("8425c86a-52bc-4ec5-a8b4-f5c3ca9019d1");
 
 			if (isProduction)
