@@ -2,12 +2,13 @@ using Mailtrap;
 using Mailtrap.Emails.Requests;
 using Mailtrap.Emails.Responses;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Notify.Function;
 
-public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
+public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironment hostEnvironment)
 {
   private readonly string ConnectionString = Environment.GetEnvironmentVariable("DatabaseConnectionString")
     ?? throw new InvalidOperationException("Database connection string is not set in environment variables.");
@@ -31,7 +32,9 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
       await using var conn = new NpgsqlConnection(ConnectionString);
       await conn.OpenAsync();
 
-      var isProduction = Environment.GetEnvironmentVariable("Production") == "true";
+      var isProduction = hostEnvironment.IsProduction();
+			logger.LogInformation("EnvironmentName = '{EnvName}', isProduction = {IsProduction}", hostEnvironment.EnvironmentName, isProduction);
+      
       var schema = isProduction ? "prod" : "dev";
       var sql = @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail"", u.""Name""
         FROM <schema>.""Notification"" n
