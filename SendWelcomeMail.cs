@@ -1,5 +1,6 @@
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Text.Json;
@@ -10,7 +11,7 @@ using Notify.Function.Models;
 
 namespace Notify.Function;
 
-public class SendWelcomeMail(IMailtrapClient mailtrapClient)
+public class SendWelcomeMail(IMailtrapClient mailtrapClient, IHostEnvironment hostEnvironment)
 {
 	[Function(nameof(SendWelcomeMail))]
 	public async Task<HttpResponseData> Run(
@@ -83,7 +84,8 @@ public class SendWelcomeMail(IMailtrapClient mailtrapClient)
   {
 		try
 		{
-			var isProduction = Environment.GetEnvironmentVariable("Production") == "true";
+			var isProduction = hostEnvironment.IsProduction();
+			logger.LogInformation("EnvironmentName = '{EnvName}', isProduction = {IsProduction}", hostEnvironment.EnvironmentName, isProduction);
 			logger.LogInformation("Creating request and try to send welcome mail...");
 
       var mailFrom = Environment.GetEnvironmentVariable("MailFrom") 
