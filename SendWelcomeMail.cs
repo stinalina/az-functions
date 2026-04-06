@@ -1,5 +1,6 @@
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Text.Json;
@@ -10,7 +11,7 @@ using Notify.Function.Models;
 
 namespace Notify.Function;
 
-public class SendWelcomeMail(IMailtrapClient mailtrapClient)
+public class SendWelcomeMail(IMailtrapClient mailtrapClient, IHostEnvironment hostEnvironment)
 {
 	[Function(nameof(SendWelcomeMail))]
 	public async Task<HttpResponseData> Run(
@@ -59,51 +60,69 @@ public class SendWelcomeMail(IMailtrapClient mailtrapClient)
 
 		try
 		{
-			var success = await SendMailAsync(email);
+			var success = await SendMailAsync(email, logger);
 			if (success)
 			{
-				logger.LogInformation("Welcome mail sent to {Email}.", email);
+				logger.LogInformation("Welcome mail sent successfully.");
 				return req.CreateResponse(HttpStatusCode.OK);
 			}
 			else
 			{
-				logger.LogError("Failed to send welcome mail to {Email}.", email);
+				logger.LogError("Failed to send welcome mail");
 				return req.CreateResponse(HttpStatusCode.InternalServerError);
 			}
 		}
 		catch (Exception ex)
 		{
-			logger.LogError(ex, "Failed to send welcome mail to {Email}.", email);
+			logger.LogError("An error occurred while sending email: {Message}", ex.Message);
+      logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
 			return req.CreateResponse(HttpStatusCode.InternalServerError);;
 		}
 	}
 
-	private async Task<bool> SendMailAsync(string recipientMail)
-  	{
+	private async Task<bool> SendMailAsync(string recipientMail, ILogger logger)
+  {
 		try
 		{
-			var sandboxId = 3946680;
+			var isProduction = hostEnvironment.IsProduction();
+			logger.LogInformation("EnvironmentName = '{EnvName}', isProduction = {IsProduction}", hostEnvironment.EnvironmentName, isProduction);
+			logger.LogInformation("Creating request and try to send welcome mail...");
+
+      var mailFrom = Environment.GetEnvironmentVariable("MailFrom") 
+        ?? throw new InvalidOperationException("MailFrom environment variable is not set.");
+
 			SendEmailRequest request = SendEmailRequest
-					.Create()
-					.From("notify@rememberMe.de", "Welcome Mail")
-					.To(recipientMail)
-					.Template("8425c86a-52bc-4ec5-a8b4-f5c3ca9019d1")
-					.TemplateVariables(new Dictionary<string, object> // Optional template  parameters
-					{
-						{ "company_info_name", "Notify" },
-						{ "company_info_address", "Test_Company_info_address" },
-						{ "company_info_city", "Heidelberg" },
-						{ "company_info_country", "Deutschland" }
-					});
-			SendEmailResponse? response = await mailtrapClient
-				.Test(sandboxId) //In production  here we call .Email()
-				.Send(request);
-			Console.WriteLine("Response was: {0}", response);
+				.Create()
+				.From(mailFrom)
+				.To(recipientMail)
+				.Template("8425c86a-52bc-4ec5-a8b4-f5c3ca9019d1");
+
+			if (isProduction)
+			{
+				logger.LogInformation("Running in production mode, sending email via Mailtrap API.");
+				SendEmailResponse? response = await mailtrapClient
+					.Email()
+					.Send(request);
+			} 
+			else
+			{
+				logger.LogInformation("Running in development mode, using Mailtrap sandbox.");
+
+				var sandboxId = int.TryParse(Environment.GetEnvironmentVariable("MailSandboxId"), out var id) 
+          ? id : throw new ArgumentException("MailSandboxId environment variable is not set.");
+
+				SendEmailResponse? response = await mailtrapClient
+					.Test(sandboxId)
+					.Send(request);
+			}
+
+			logger.LogInformation("Mail sending process completed successfully.");
 			return true;
 		}
 		catch (Exception ex)
 		{
-			Console.WriteLine("An error occurred while sending email: {0}", ex);
+			logger.LogError("An error occurred while sending email: {Message}", ex.Message);
+      logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
 			return false;
 		}
   }

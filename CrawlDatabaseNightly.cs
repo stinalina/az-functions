@@ -2,12 +2,13 @@ using Mailtrap;
 using Mailtrap.Emails.Requests;
 using Mailtrap.Emails.Responses;
 using Microsoft.Azure.Functions.Worker;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Notify.Function;
 
-public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
+public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironment hostEnvironment)
 {
   private readonly string ConnectionString = Environment.GetEnvironmentVariable("DatabaseConnectionString")
     ?? throw new InvalidOperationException("Database connection string is not set in environment variables.");
@@ -31,7 +32,9 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
       await using var conn = new NpgsqlConnection(ConnectionString);
       await conn.OpenAsync();
 
-      var isProduction = Environment.GetEnvironmentVariable("Production") == "true";
+      var isProduction = hostEnvironment.IsProduction();
+			logger.LogInformation("EnvironmentName = '{EnvName}', isProduction = {IsProduction}", hostEnvironment.EnvironmentName, isProduction);
+      
       var schema = isProduction ? "prod" : "dev";
       var sql = @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail"", u.""Name""
         FROM <schema>.""Notification"" n
@@ -68,7 +71,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
       logger.LogInformation("Found {Count} notifications due tomorrow:", notifications.Count);
       foreach (var notification in notifications)
       {
-        await Task.Run(() => SendMail(notification, logger));
+        await SendMailAsync(notification, logger);
 			  logger.LogInformation("Notification mail sent to {Mail}.", notification.Mail);
       }
       return;
@@ -76,7 +79,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
     logger.LogInformation("Nothing found to due tomorrow");
 	}
 
-  private async Task SendMail(NotificationEntry notification, ILogger logger)
+  private async Task SendMailAsync(NotificationEntry notification, ILogger logger)
   {
     if (notification.Name == "Unknown") {
       notification.Name = "Unbekannter Nutzer";
@@ -84,29 +87,48 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
 
 		try
 		{
-      logger.LogInformation("Creating request and try to send mail...");
-			var sandboxId = 3946680;
-				SendEmailRequest request = SendEmailRequest
-						.Create()
-						.From("notify@remember-me.de", "Send Test Notification")
-						.To(notification.Mail)
-            .Template("75d0d9f7-1d08-43cd-bd81-bf4587e39cee")
-            .TemplateVariables(new Dictionary<string, string>
-            {
-              { "subject", notification.Subject },
-              { "username", notification.Name },
-              { "content", notification.Content }
-          });
-        
+      var isProduction = Environment.GetEnvironmentVariable("Production") == "true";
+			logger.LogInformation("Creating request and try to send mail...");
+
+      var mailFrom = Environment.GetEnvironmentVariable("MailFrom") 
+        ?? throw new InvalidOperationException("MailFrom environment variable is not set.");
+
+			SendEmailRequest request = SendEmailRequest
+				.Create()
+        .From(mailFrom)
+        .To(notification.Mail)
+        .Template("75d0d9f7-1d08-43cd-bd81-bf4587e39cee")
+        .TemplateVariables(new Dictionary<string, string>
+        {
+          { "subject", notification.Subject },
+          { "username", notification.Name },
+          { "content", notification.Content }
+        });
+
+			if (isProduction)
+			{
+				logger.LogInformation("Running in production mode, sending email via Mailtrap API.");
 				SendEmailResponse? response = await mailtrapClient
-					.Test(sandboxId) //In production  here we call .Email()
+					.Email()
 					.Send(request);
-				logger.LogInformation("Response was: {Response}", response);
+			} 
+			else
+			{
+				logger.LogInformation("Running in development mode, using Mailtrap sandbox.");
+
+				var sandboxId = int.TryParse(Environment.GetEnvironmentVariable("MailSandboxId"), out var id) 
+          ? id : throw new ArgumentException("MailSandboxId environment variable is not set.");
+
+				SendEmailResponse? response = await mailtrapClient
+					.Test(sandboxId)
+					.Send(request);
+			}
+			logger.LogInformation("Email sended successfully");
 		}
 		catch (Exception ex)
 		{
-				logger.LogError("An error occurred while sending email: {Message}", ex.Message);
-        logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
+      logger.LogError("An error occurred while sending email: {Message}", ex.Message);
+      logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
 		}
   }
 
@@ -120,5 +142,4 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient)
     public required string Mail { get; set; }
     public required string Name { get; set; }
   }
-
 }
