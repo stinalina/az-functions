@@ -28,7 +28,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
 
     try
     {
-      logger.LogInformation("Connecting to database...");
+      logger.LogInformation("Connecting to database {ConnectionString} ...", ConnectionString.Split('.').First());
       await using var conn = new NpgsqlConnection(ConnectionString);
       await conn.OpenAsync();
 
@@ -87,7 +87,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
 
 		try
 		{
-      var isProduction = Environment.GetEnvironmentVariable("Production") == "true";
+      var isProduction = hostEnvironment.IsProduction();
 			logger.LogInformation("Creating request and try to send mail...");
 
       var mailFrom = Environment.GetEnvironmentVariable("MailFrom") 
