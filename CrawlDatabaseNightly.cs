@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Mailtrap;
 using Mailtrap.Emails.Requests;
 using Mailtrap.Emails.Responses;
@@ -22,6 +23,10 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
 		var logger = context.GetLogger(nameof(CrawlDatabaseNightly));
 		logger.LogInformation("CrawlDatabaseNightly function triggered.");
 
+    var isProduction = hostEnvironment.IsProduction();
+    logger.LogInformation("EnvironmentName = '{EnvName}', isProduction = {IsProduction}", hostEnvironment.EnvironmentName, isProduction);
+    var schema = isProduction ? "prod" : "dev";
+
 		var tomorrow = DateTime.UtcNow.Date.AddDays(1);
     var notifications = new List<NotificationEntry>();
     var notificationsWithMail = new List<NotificationEntry>();
@@ -32,10 +37,6 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
       await using var conn = new NpgsqlConnection(ConnectionString);
       await conn.OpenAsync();
 
-      var isProduction = hostEnvironment.IsProduction();
-			logger.LogInformation("EnvironmentName = '{EnvName}', isProduction = {IsProduction}", hostEnvironment.EnvironmentName, isProduction);
-      
-      var schema = isProduction ? "prod" : "dev";
       var sql = @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail"", u.""Name""
         FROM <schema>.""Notification"" n
         JOIN <schema>.""User"" u ON n.""UserId"" = u.""Id""
@@ -73,6 +74,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
       {
         await SendMailAsync(notification, logger);
 			  logger.LogInformation("Notification mail sent to {Mail}.", notification.Mail);
+        await DeleteNotificationAsync(notification.Id, schema, logger);
       }
       return;
     }
@@ -130,6 +132,28 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
       logger.LogError("An error occurred while sending email: {Message}", ex.Message);
       logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
 		}
+  }
+
+  private async Task DeleteNotificationAsync(Guid id, string schema, ILogger logger)
+  {
+    var sql = @"DELETE FROM <schema>.""Notification"" WHERE ""Id"" = @id".Replace("<schema>", schema);
+
+    try
+    {
+      logger.LogInformation("Connecting to database {ConnectionString} ...", ConnectionString.Split('.').First());
+      await using var conn = new NpgsqlConnection(ConnectionString);
+      await conn.OpenAsync();
+
+      var cmd = new NpgsqlCommand(sql, conn);
+      cmd.Parameters.AddWithValue("id", id);
+      await using var reader = await cmd.ExecuteReaderAsync();
+      logger.LogInformation("Deleting notification with Id {Id}", id);
+    } 
+    catch (Exception ex)
+    {
+      logger.LogError("Error deleting notification with Id {Id}: {Message}", id, ex.Message);
+      logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
+    }
   }
 
   public class NotificationEntry
