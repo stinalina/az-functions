@@ -14,7 +14,7 @@ builder.Services
 
 builder.Services.AddMailtrapClient(options =>
 {
-	options.ApiToken = Environment.GetEnvironmentVariable("MailTrapApiToken")
+	options.ApiToken = Environment.GetEnvironmentVariable("MailTrapAllrounderToken")
 		?? throw new InvalidOperationException("MailTrap API token is not set in environment variables.");
 });
 

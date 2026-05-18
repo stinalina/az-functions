@@ -37,10 +37,9 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
       await using var conn = new NpgsqlConnection(ConnectionString);
       await conn.OpenAsync();
 
-      var sql = @"SELECT n.""Id"", n.""CreatedAt"", n.""DueDate"", n.""Content"", n.""Subject"", u.""Mail"", u.""Name""
-        FROM <schema>.""Notification"" n
-        JOIN <schema>.""User"" u ON n.""UserId"" = u.""Id""
-        WHERE n.""DueDate""::date = @duedate".Replace("<schema>", schema);
+      var sql = @"SELECT ""Id"", ""CreatedAt"", ""Content"", ""Subject"", ""Mail""
+        FROM <schema>.""Notification""
+        WHERE ""DueDate""::date = @duedate".Replace("<schema>", schema);
         
       var cmd = new NpgsqlCommand(sql, conn);
       cmd.Parameters.AddWithValue("duedate", tomorrow);
@@ -53,11 +52,10 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
         {
           Id = reader.GetGuid(0),
           CreatedAt = reader.GetDateTime(1),
-          DueDate = reader.GetDateTime(2),
-          Content = reader.GetString(3),
-          Subject = reader.GetString(4),
-          Mail = reader.GetString(5),
-          Name = reader.GetString(6)
+          Content = reader.GetString(2),
+          Subject = reader.GetString(3),
+          Mail = reader.GetString(4),
+          Name = reader.GetString(4).Split('@').First()
         });
       }
     }
@@ -83,10 +81,6 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
 
   private async Task SendMailAsync(NotificationEntry notification, ILogger logger)
   {
-    if (notification.Name == "Unknown") {
-      notification.Name = "Unbekannter Nutzer";
-    }
-
 		try
 		{
       var isProduction = hostEnvironment.IsProduction();
