@@ -1,20 +1,18 @@
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Net;
-using System.Net.Mail;
 using System.Text.Json;
 using Mailtrap;
 using Mailtrap.Emails.Requests;
 using Mailtrap.Emails.Responses;
+using Notify.Function.Models;
 
 namespace Notify.Function;
 
-public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClient)
+public class SendWelcomeMail(IMailtrapClient mailtrapClient, IHostEnvironment hostEnvironment)
 {
-	private readonly SmtpClient _smtpClient = smtpClient
-		?? throw new ArgumentNullException(nameof(smtpClient));
-
 	[Function(nameof(SendWelcomeMail))]
 	public async Task<HttpResponseData> Run(
 		[HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "sendWelcomeMail")]
@@ -30,20 +28,22 @@ public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClie
 		if (context.BindingContext.BindingData.TryGetValue("email", out var bd))
 		{
 			email = bd?.ToString();
+			logger.LogInformation("Email extracted from query parameters: {Email}", email);
 		}
 
 		if (string.IsNullOrWhiteSpace(email))
 		{
 			try
 			{
-        using var reader = new StreamReader(req.Body);
-        var body = await reader.ReadToEndAsync();
-        user = JsonSerializer.Deserialize<User>(body);
-        if (user != null && !string.IsNullOrWhiteSpace(user.Mail))
-        {
-          email = user.Mail;
-        }
-      }
+				using var reader = new StreamReader(req.Body);
+				var body = await reader.ReadToEndAsync();
+				user = JsonSerializer.Deserialize<User>(body);
+				if (user != null && !string.IsNullOrWhiteSpace(user.Mail))
+				{
+					email = user.Mail;
+					logger.LogInformation("Email extracted from request body: {Email}", email);
+				}
+			}
 			catch (Exception ex)
 			{
 				logger.LogWarning(ex, "Failed to parse User from request body.");
@@ -60,55 +60,70 @@ public class SendWelcomeMail(SmtpClient smtpClient, IMailtrapClient mailtrapClie
 
 		try
 		{
-			// send mail (synchronous method called from a background task to avoid blocking)
-			await Task.Run(() => SendMail(email, user?.Name));
-			logger.LogInformation($"Welcome mail sent to {email}.");
-			return req.CreateResponse(HttpStatusCode.OK);
+			var success = await SendMailAsync(email, logger);
+			if (success)
+			{
+				logger.LogInformation("Welcome mail sent successfully.");
+				return req.CreateResponse(HttpStatusCode.OK);
+			}
+			else
+			{
+				logger.LogError("Failed to send welcome mail");
+				return req.CreateResponse(HttpStatusCode.InternalServerError);
+			}
 		}
 		catch (Exception ex)
 		{
-			logger.LogError(ex, "Failed to send welcome mail.");
+			logger.LogError("An error occurred while sending email: {Message}", ex.Message);
+      logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
 			return req.CreateResponse(HttpStatusCode.InternalServerError);;
 		}
 	}
 
-	private async Task SendMail(string recipientMail, string? recipientName)
+	private async Task<bool> SendMailAsync(string recipientMail, ILogger logger)
   {
-		// const string subject = "Willkommen bei Remember Me!";
-		// string message = $"Wilkommen {recipientName ?? ""} bei Remember Me! Du hast soeben deine erste Erinnerung erstellt. Erstelle doch auch ein Konto bei uns, damit du deine Erinnerungen bearbeiten kannst!";
-		// _smtpClient.Send("notify@remember-me.de", recipientMail, subject, message);
-		// Console.WriteLine("Sent");
-
-		
 		try
 		{
-			var sandboxId = 3946680;
-				SendEmailRequest request = SendEmailRequest
-						.Create()
-						.From("notify@remember-me.de", "Welcome Mail")
-						.To(recipientMail)
-						.Template("8425c86a-52bc-4ec5-a8b4-f5c3ca9019d1")
-						.TemplateVariables(new Dictionary<string, object> // Optional template  parameters
-						{
-								{ "company_info_name", "Notify" },
-								{ "company_info_address", "Test_Company_info_address" },
-								{ "company_info_city", "Heidelberg" },
-								{ "company_info_country", "Deutschland" }
-						});
+			var isProduction = hostEnvironment.IsProduction();
+			logger.LogInformation("EnvironmentName = '{EnvName}', isProduction = {IsProduction}", hostEnvironment.EnvironmentName, isProduction);
+			logger.LogInformation("Creating request and try to send welcome mail...");
+
+      var mailFrom = Environment.GetEnvironmentVariable("MailFrom") 
+        ?? throw new InvalidOperationException("MailFrom environment variable is not set.");
+
+			SendEmailRequest request = SendEmailRequest
+				.Create()
+				.From(mailFrom)
+				.To(recipientMail)
+				.Template("8425c86a-52bc-4ec5-a8b4-f5c3ca9019d1");
+
+			if (isProduction)
+			{
+				logger.LogInformation("Running in production mode, sending email via Mailtrap API.");
 				SendEmailResponse? response = await mailtrapClient
-					.Test(sandboxId) //In production  here we call .Email()
+					.Email()
 					.Send(request);
-				Console.WriteLine("Response was: {0}", response);
+			} 
+			else
+			{
+				logger.LogInformation("Running in development mode, using Mailtrap sandbox.");
+
+				var sandboxId = int.TryParse(Environment.GetEnvironmentVariable("MailSandboxId"), out var id) 
+          ? id : throw new ArgumentException("MailSandboxId environment variable is not set.");
+
+				SendEmailResponse? response = await mailtrapClient
+					.Test(sandboxId)
+					.Send(request);
+			}
+
+			logger.LogInformation("Mail sending process completed successfully.");
+			return true;
 		}
 		catch (Exception ex)
 		{
-				Console.WriteLine("An error occurred while sending email: {0}", ex);
+			logger.LogError("An error occurred while sending email: {Message}", ex.Message);
+      logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
+			return false;
 		}
   }
-}
-
-public class User
-{
-	public required string Mail { get; set; }
-	public required string Name { get; set; }
 }
