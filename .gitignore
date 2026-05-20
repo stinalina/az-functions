@@ -3,6 +3,7 @@
 
 # Azure Functions localsettings file
 local.settings.json
+az-functions.csproj.lscache
 
 # User-specific files
 *.suo

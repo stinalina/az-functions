@@ -72,7 +72,10 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
       {
         await SendMailAsync(notification, logger);
 			  logger.LogInformation("Notification mail sent to {Mail}.", notification.Mail);
-        await DeleteNotificationAsync(notification.Id, schema, logger);
+
+        //TODO: erst nutzen, wenn wir wissen was mit den gelöschten Notes passieren soll
+        // für Stats wollen wir uns das schon irgendwie vermerken...
+        //await DeleteNotificationAsync(notification.Id, schema, logger);
       }
       return;
     }
