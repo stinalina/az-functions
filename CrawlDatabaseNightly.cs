@@ -39,7 +39,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
 
       var sql = @"SELECT ""Id"", ""CreatedAt"", ""Content"", ""Subject"", ""Mail""
         FROM <schema>.""Notification""
-        WHERE ""DueDate""::date = @duedate".Replace("<schema>", schema);
+        WHERE ""IsDraft"" = false AND ""DueDate""::date = @duedate".Replace("<schema>", schema);
         
       var cmd = new NpgsqlCommand(sql, conn);
       cmd.Parameters.AddWithValue("duedate", tomorrow);
