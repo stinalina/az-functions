@@ -5,6 +5,7 @@ using Mailtrap.Emails.Responses;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Notify.Function.Models;
 using Npgsql;
 
 namespace Notify.Function;
@@ -14,17 +15,19 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
   private readonly string ConnectionString = Environment.GetEnvironmentVariable("DatabaseConnectionString")
     ?? throw new InvalidOperationException("Database connection string is not set in environment variables.");
 
+  private ILogger _logger;
+
 // Cron expression: At 23:30 every day
 	[Function(nameof(CrawlDatabaseNightly))]
 	public async Task Run(
 		[TimerTrigger("0 30 23 * * *")] TimerInfo timerInfo,
 		FunctionContext context)
 	{
-		var logger = context.GetLogger(nameof(CrawlDatabaseNightly));
-		logger.LogInformation("CrawlDatabaseNightly function triggered.");
+		_logger = context.GetLogger(nameof(CrawlDatabaseNightly));
+		_logger.LogInformation("CrawlDatabaseNightly function triggered.");
 
     var isProduction = hostEnvironment.IsProduction();
-    logger.LogInformation("EnvironmentName = '{EnvName}', isProduction = {IsProduction}", hostEnvironment.EnvironmentName, isProduction);
+    _logger.LogInformation("EnvironmentName = '{EnvName}', isProduction = {IsProduction}", hostEnvironment.EnvironmentName, isProduction);
     var schema = isProduction ? "prod" : "dev";
 
 		var tomorrow = DateTime.UtcNow.Date.AddDays(1);
@@ -33,7 +36,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
 
     try
     {
-      logger.LogInformation("Connecting to database {ConnectionString} ...", ConnectionString.Split('.').First());
+      _logger.LogInformation("Connecting to database {ConnectionString} ...", ConnectionString.Split('.').First());
       await using var conn = new NpgsqlConnection(ConnectionString);
       await conn.OpenAsync();
 
@@ -43,7 +46,7 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
         
       var cmd = new NpgsqlCommand(sql, conn);
       cmd.Parameters.AddWithValue("duedate", tomorrow);
-      logger.LogInformation("Add {Tomorrow} as due date", tomorrow);
+      _logger.LogInformation("Add {Tomorrow} as due date", tomorrow);
 
       await using var reader = await cmd.ExecuteReaderAsync();
       while (await reader.ReadAsync())
@@ -61,17 +64,17 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
     }
     catch (Exception ex)
     {
-      logger.LogError("Error querying database: {Message}", ex.Message);
-      logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
+      _logger.LogError("Error querying database: {Message}", ex.Message);
+      _logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
     }
 
     if (notifications.Count > 0)
     {
-      logger.LogInformation("Found {Count} notifications due tomorrow:", notifications.Count);
+      _logger.LogInformation("Found {Count} notifications due tomorrow:", notifications.Count);
       foreach (var notification in notifications)
       {
-        await SendMailAsync(notification, logger);
-			  logger.LogInformation("Notification mail sent to {Mail}.", notification.Mail);
+        await SendMailAsync(notification);
+			  _logger.LogInformation("Notification mail sent to {Mail}.", notification.Mail);
 
         //TODO: erst nutzen, wenn wir wissen was mit den gelöschten Notes passieren soll
         // für Stats wollen wir uns das schon irgendwie vermerken...
@@ -79,15 +82,15 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
       }
       return;
     }
-    logger.LogInformation("Nothing found to due tomorrow");
+    _logger.LogInformation("Nothing found to due tomorrow");
 	}
 
-  private async Task SendMailAsync(NotificationEntry notification, ILogger logger)
+  private async Task SendMailAsync(NotificationEntry notification)
   {
 		try
 		{
       var isProduction = hostEnvironment.IsProduction();
-			logger.LogInformation("Creating request and try to send mail...");
+			_logger.LogInformation("Creating request and try to send mail...");
 
       var mailFrom = Environment.GetEnvironmentVariable("MailFrom") 
         ?? throw new InvalidOperationException("MailFrom environment variable is not set.");
@@ -106,14 +109,14 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
 
 			if (isProduction)
 			{
-				logger.LogInformation("Running in production mode, sending email via Mailtrap API.");
+				_logger.LogInformation("Running in production mode, sending email via Mailtrap API.");
 				SendEmailResponse? response = await mailtrapClient
 					.Email()
 					.Send(request);
 			} 
 			else
 			{
-				logger.LogInformation("Running in development mode, using Mailtrap sandbox.");
+			 _logger.LogInformation("Running in development mode, using Mailtrap sandbox.");
 
 				var sandboxId = int.TryParse(Environment.GetEnvironmentVariable("MailSandboxId"), out var id) 
           ? id : throw new ArgumentException("MailSandboxId environment variable is not set.");
@@ -122,16 +125,16 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
 					.Test(sandboxId)
 					.Send(request);
 			}
-			logger.LogInformation("Email sended successfully");
+			_logger.LogInformation("Email sended successfully");
 		}
 		catch (Exception ex)
 		{
-      logger.LogError("An error occurred while sending email: {Message}", ex.Message);
-      logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
+      _logger.LogError("An error occurred while sending email: {Message}", ex.Message);
+      _logger.LogError("Stack Trace: {StackTrace}", ex.StackTrace);
 		}
   }
 
-  private async Task DeleteNotificationAsync(Guid id, string schema, ILogger logger)
+  private async Task DeleteNotificationAsync(Guid id, string schema)
   {
     var sql = @"DELETE FROM <schema>.""Notification"" WHERE ""Id"" = @id".Replace("<schema>", schema);
 
@@ -153,14 +156,24 @@ public class CrawlDatabaseNightly(IMailtrapClient mailtrapClient, IHostEnvironme
     }
   }
 
-  public class NotificationEntry
+  private async Task GetAttachments(attachmentIds... string)
   {
-    public Guid Id { get; set; }
-    public DateTime DueDate { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public required string Content { get; set; }
-    public required string Subject { get; set; }
-    public required string Mail { get; set; }
-    public required string Name { get; set; }
+    try
+    {
+      using var mailtrapFactory = new MailtrapClientFactory("YOUR_API_KEY");
+          var client = mailtrapFactory.CreateClient();
+          var inboxId = 54321;
+          var messageId = 67890;
+          var attachmentId = 222222;
+          var attachment = await client
+              .Account(YOUR_ACCOUNT_ID)
+              .Inbox(inboxId)
+              .Message(messageId)
+              .Attachment(attachmentId)
+              .GetDetails();
+    } catch(HttpRequestError e)
+    {
+       //TODO response Errors https://docs.mailtrap.io/developers/email-sandbox/attachments
+    }
   }
 }
