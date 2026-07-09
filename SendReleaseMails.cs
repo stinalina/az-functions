@@ -114,7 +114,6 @@ public class SendReleaseMails(IMailtrapClient mailtrapClient, IHostEnvironment h
 
 	private async Task<bool> SendMailsAsync(string version, List<EmailAddress> recipients, ILogger logger, bool isProduction)
     {
-        EmailAddress[] testMails = [new EmailAddress("stinaboehmig@gmx.de"), new EmailAddress("stina.boehmig@bridging-it.de")];
 		try
 		{
             var mailFrom = Environment.GetEnvironmentVariable("MailFrom") 
@@ -123,7 +122,7 @@ public class SendReleaseMails(IMailtrapClient mailtrapClient, IHostEnvironment h
 			SendEmailRequest request = SendEmailRequest
 				.Create()
 				.From(mailFrom)
-				.To(testMails)
+				.To(recipients.ToArray())
 				.Template("bd270ca7-13ac-434c-88f3-1f6baa38a53d")
                 .TemplateVariables(new Dictionary<string, string>
                 {
